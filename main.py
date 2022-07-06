@@ -1,5 +1,5 @@
-import srv as srv
-import xmltodict
+# import srv as srv
+# import xmltodict
 from flask import Flask
 from bson import json_util
 import json
@@ -21,9 +21,41 @@ pain_docs_updated = db['Pain Docs Updated']
 # Opening JSON file
 app = Flask(__name__)
 
-# returns JSON object as
-# a dictionary
 
+def update_paymentinfo_quality(
+        caq_iban_present,
+        caq_iban_valid,
+        cq_iban_present,
+        payment_id,
+        dq_iban_present,
+        daq_iban_present,
+        daq_iban_valid):
+    return {
+        "paymentID": payment_id,
+        "Quality": {
+          "CreditorAccountQuality": {
+            "IBAN_present": caq_iban_present,
+            "IBAN_valid": caq_iban_valid
+          },
+          "CreditorQuality": {
+            "IBAN_present": cq_iban_present
+          },
+          "DebtorQuality": {
+              "IBAN_present": dq_iban_present
+          },
+          "DebtorAccountQuality": {
+              "IBAN_present": daq_iban_present,
+              "IBAN_valid": daq_iban_valid
+          }
+        }
+      }
+# a dictionary
+def message_quality(paymentInfos):
+    return {
+  "MessageQuality": {
+    "PaymentInfoQuality": paymentInfos
+  }
+}
 
 @app.route('/getRecords')
 def get_records():
@@ -77,6 +109,7 @@ def addModData():
         creditor_scores = []
         for i in range(len(doc['Document']['CstmrCdtTrfInitn']['PmtInf'])):
             if debtor_acct_id_rule(doc['Document']['CstmrCdtTrfInitn']['PmtInf'][i]):
+
                 for j in range(len(doc['Document']['CstmrCdtTrfInitn']['PmtInf'][i]['CdtTrfTxInf'])):
                     if creditor_agent_id_rule(doc['Document']['CstmrCdtTrfInitn']['PmtInf'][i]['CdtTrfTxInf'][j]) and creditor_acct_id_rule(doc['Document']['CstmrCdtTrfInitn']['PmtInf'][i]['CdtTrfTxInf'][j]):
                         crdtr_bicscore = val_BIC(doc['Document']['CstmrCdtTrfInitn']['PmtInf'][i]['CdtTrfTxInf'][j]['CdtrAgt']['FinInstnId']['BIC'])
