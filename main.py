@@ -6,7 +6,8 @@ import json
 import re
 import pymongo
 import pprint
-# insall dnsevermodule
+import schwifty
+# insall dnspython
 import requests
 import bson
 
@@ -29,61 +30,68 @@ def get_records():
     all_records = list(pain_docs.find({}))
     return json.dumps(all_records, default=json_util.default)
 
-def creditor_agent_id_rule():
-    pass
 
-
-def creditor_acct_id_rule(CdtrAcct):
-    if not CdtrAcct:
+def creditor_agent_id_rule(obj):
+    if not obj['CdtrAgt']:
         return False
-
-def debtor_acct_id_rule():
-    pass
-
-def bic_Constraint(bic):
-    # will be chekced with iban module
-    pattern = '[A-Z]{6,6}[a-zA-Z2-9]'
-    if re.search(pattern,bic) != None:
-        return 1
     else:
+        return True
+
+
+def creditor_acct_id_rule(obj):
+    if not obj['CdtrAcct']:
+        return False
+    else:
+        return True
+
+def debtor_acct_id_rule(obj):
+    if not obj['DbtrAcct']:
+        return False
+    else:
+        return True
+
+
+def val_IBAN(iban_no):
+    try:
+        if(schwifty.IBAN.validate(schwifty.IBAN(iban_no))):
+            return 1
+        else:
+            return 0
+    except:
         return 0
 
-def iban_Constraint(iban):
-    #will be checked with iban module
-    pattern = '[A-Z]{2,2}[0-9]{2,2}[a-zA-Z0-9]{1,30}'
-
-    if re.search(pattern,iban) != None:
-        return 1
-    else:
+#will be checked with iban module
+def val_BIC(bic_no):
+    try:
+        if(schwifty.BIC.validate(schwifty.BIC(bic_no))):
+            return 1
+        else:
+            return 0
+    except:
         return 0
 
 @app.route('/addModData')
 def addModData():
     all_records = pain_docs.find()
     for doc in all_records:
-        # new_value = {"new data": "data"}
-        # pprint.pprint(doc['Document']['CstmrCdtTrfInitn']['PmtInf']['CdtTrfTxInf'][0].update(new_value))
-        # pprint.pprint(doc['Document'].update(newid))
-        # pain_docs_updated.insert_one(doc)
-        creditor1_bic_score = 0
-        creditor1_iban_score = 0
-        debtor_bic_score = 0
-        debtor_iban_score = 0
-        for i in range(1,len(doc)):
-            creditor1_iban_score = iban_Constraint(doc['Document']['CstmrCdtTrfInitn']['PmtInf']['CdtTrfTxInf'][i]['CdtrAcct']['Id']['IBAN'])
-            creditor1_bic_score =bic_Constraint(doc['Document']['CstmrCdtTrfInitn']['PmtInf']['CdtTrfTxInf'][i]['CdtrAgt']['FinInstnId']['BIC'])
-            avg_score = creditor1_iban_score+creditor1_bic_score/2
-            doc['Document']['CstmrCdtTrfInitn']['PmtInf']['CdtTrfTxInf'][i]['avg_score'] = avg_score
+        creditor_scores = []
+        for i in range(len(doc['Document']['CstmrCdtTrfInitn']['PmtInf'])):
+            if debtor_acct_id_rule(doc['Document']['CstmrCdtTrfInitn']['PmtInf'][i]):
+                for j in range(len(doc['Document']['CstmrCdtTrfInitn']['PmtInf'][i]['CdtTrfTxInf'])):
+                    if creditor_agent_id_rule(doc['Document']['CstmrCdtTrfInitn']['PmtInf'][i]['CdtTrfTxInf'][j]) and creditor_acct_id_rule(doc['Document']['CstmrCdtTrfInitn']['PmtInf'][i]['CdtTrfTxInf'][j]):
+                        crdtr_bicscore = val_BIC(doc['Document']['CstmrCdtTrfInitn']['PmtInf'][i]['CdtTrfTxInf'][j]['CdtrAgt']['FinInstnId']['BIC'])
+                        crdtr_ibanscore = val_IBAN(doc['Document']['CstmrCdtTrfInitn']['PmtInf'][i]['CdtTrfTxInf'][j]['CdtrAcct']['Id']['IBAN'])
+                        print(crdtr_ibanscore)
+                        print(crdtr_bicscore)
+                        avg_score =  crdtr_bicscore+crdtr_ibanscore/2
+                    doc['Document']['CstmrCdtTrfInitn']['PmtInf'][i]['CdtTrfTxInf'][j]['avg_score'] = avg_score
+                    creditor_scores.append(avg_score)
+                    print(creditor_scores)
 
-        debtor_iban_score = iban_Constraint(doc['Document']['CstmrCdtTrfInitn']['PmtInf']['DbtrAcct']['Id']['IBAN'])
-        debtor_bic_score = bic_Constraint(doc['Document']['CstmrCdtTrfInitn']['PmtInf']['DbtrAgt']['FinInstnId']['BIC'])
-        print(creditor1_iban_score)
-        print(creditor1_bic_score)
-        print(debtor_iban_score)
-        print(debtor_bic_score)
-        doc_score: float = (creditor1_iban_score+creditor1_bic_score+debtor_iban_score+debtor_bic_score)/4
-        score = doc_score
-        doc['Document']['doc_score'] = score
+            debtor_iban_score = val_IBAN(doc['Document']['CstmrCdtTrfInitn']['PmtInf'][i]['DbtrAcct']['Id']['IBAN'])
+            debtor_bic_score = val_BIC(doc['Document']['CstmrCdtTrfInitn']['PmtInf'][i]['DbtrAgt']['FinInstnId']['BIC'])
+            quality_score: float = (sum(creditor_scores)+debtor_bic_score+debtor_iban_score)/7
+            doc['Document']['QualityScore'] = quality_score
         pprint.pprint(doc)
     return 'yeah, you got it :)'
 
