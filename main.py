@@ -25,9 +25,9 @@ app = Flask(__name__)
 def update_paymentinfo_quality(
         caq_iban_present,
         caq_iban_valid,
-        cq_iban_present,
+        cq_present,
         payment_id,
-        dq_iban_present,
+        dq_present,
         daq_iban_present,
         daq_iban_valid):
     return {
@@ -37,12 +37,8 @@ def update_paymentinfo_quality(
             "IBAN_present": caq_iban_present,
             "IBAN_valid": caq_iban_valid
           },
-          "CreditorQuality": {
-            "IBAN_present": cq_iban_present
-          },
-          "DebtorQuality": {
-              "IBAN_present": dq_iban_present
-          },
+          "CreditorQuality": cq_present,
+          "DebtorQuality": dq_present,
           "DebtorAccountQuality": {
               "IBAN_present": daq_iban_present,
               "IBAN_valid": daq_iban_valid
@@ -52,10 +48,9 @@ def update_paymentinfo_quality(
 # a dictionary
 def message_quality(paymentInfos):
     return {
-  "MessageQuality": {
     "PaymentInfoQuality": paymentInfos
   }
-}
+
 
 @app.route('/getRecords')
 def get_records():
@@ -68,7 +63,11 @@ def creditor_agent_id_rule(obj):
         return False
     else:
         return True
-
+def creditor_acct(obj):
+    if not obj['CdtrAcct']:
+        return False
+    else:
+        return True
 
 def creditor_acct_id_rule(obj):
     if not obj['CdtrAcct']:
@@ -76,8 +75,16 @@ def creditor_acct_id_rule(obj):
     else:
         return True
 
+
+
+def debtor_rule(obj):
+    if not obj['Dbtr']:
+        return False
+    else:
+        return True
+
 def debtor_acct_id_rule(obj):
-    if not obj['DbtrAcct']:
+    if not obj['Id']:
         return False
     else:
         return True
@@ -106,25 +113,42 @@ def val_BIC(bic_no):
 def addModData():
     all_records = pain_docs.find()
     for doc in all_records:
-        creditor_scores = []
+        paymentInfo_quality_list = []
         for i in range(len(doc['Document']['CstmrCdtTrfInitn']['PmtInf'])):
-            if debtor_acct_id_rule(doc['Document']['CstmrCdtTrfInitn']['PmtInf'][i]):
+            payment_id = doc['Document']['CstmrCdtTrfInitn']['GrpHdr']['MsgId']
+            caq_iban_present :int
+            caq_iban_valid :int
+            cq_present :int
+            dq_present :int
+            daq_iban_present :int
+            daq_iban_valid = int
+            if debtor_rule(doc['Document']['CstmrCdtTrfInitn']['PmtInf'][i]):
+                dq_present = 1
+            if debtor_acct_id_rule(doc['Document']['CstmrCdtTrfInitn']['PmtInf'][i]['DbtrAcct']):
+                daq_iban_present = 1
+                daq_iban_valid = val_IBAN(doc['Document']['CstmrCdtTrfInitn']['PmtInf'][i]['DbtrAcct']['Id']['IBAN'])
+            else:
+                daq_iban_present = 0
+                daq_iban_valid = 0
+            for j in range(len(doc['Document']['CstmrCdtTrfInitn']['PmtInf'][i]['CdtTrfTxInf'])):
+                if creditor_acct(doc['Document']['CstmrCdtTrfInitn']['PmtInf'][i]['CdtTrfTxInf'][j]):
+                    cq_present = 1
+                    if creditor_acct_id_rule(doc['Document']['CstmrCdtTrfInitn']['PmtInf'][i]['CdtTrfTxInf'][j]):
+                        caq_iban_present = 1
+                        caq_iban_valid = val_IBAN(doc['Document']['CstmrCdtTrfInitn']['PmtInf'][i]['CdtTrfTxInf'][j]['CdtrAcct']['Id']['IBAN'])
+                        print(caq_iban_valid)
+                else:
+                    cq_present = 0
+                    caq_iban_present = 0
+            paymentInfo_quality_list.append(update_paymentinfo_quality(caq_iban_present,
+                                                                        caq_iban_valid,
+                                                                        cq_present,
+                                                                        payment_id,
+                                                                        dq_present,
+                                                                        daq_iban_present,
+                                                                        daq_iban_valid))
+        doc['Document']['MessageQuality'] =  message_quality(paymentInfo_quality_list)
 
-                for j in range(len(doc['Document']['CstmrCdtTrfInitn']['PmtInf'][i]['CdtTrfTxInf'])):
-                    if creditor_agent_id_rule(doc['Document']['CstmrCdtTrfInitn']['PmtInf'][i]['CdtTrfTxInf'][j]) and creditor_acct_id_rule(doc['Document']['CstmrCdtTrfInitn']['PmtInf'][i]['CdtTrfTxInf'][j]):
-                        crdtr_bicscore = val_BIC(doc['Document']['CstmrCdtTrfInitn']['PmtInf'][i]['CdtTrfTxInf'][j]['CdtrAgt']['FinInstnId']['BIC'])
-                        crdtr_ibanscore = val_IBAN(doc['Document']['CstmrCdtTrfInitn']['PmtInf'][i]['CdtTrfTxInf'][j]['CdtrAcct']['Id']['IBAN'])
-                        print(crdtr_ibanscore)
-                        print(crdtr_bicscore)
-                        avg_score =  crdtr_bicscore+crdtr_ibanscore/2
-                    doc['Document']['CstmrCdtTrfInitn']['PmtInf'][i]['CdtTrfTxInf'][j]['avg_score'] = avg_score
-                    creditor_scores.append(avg_score)
-                    print(creditor_scores)
-
-            debtor_iban_score = val_IBAN(doc['Document']['CstmrCdtTrfInitn']['PmtInf'][i]['DbtrAcct']['Id']['IBAN'])
-            debtor_bic_score = val_BIC(doc['Document']['CstmrCdtTrfInitn']['PmtInf'][i]['DbtrAgt']['FinInstnId']['BIC'])
-            quality_score: float = (sum(creditor_scores)+debtor_bic_score+debtor_iban_score)/7
-            doc['Document']['QualityScore'] = quality_score
         pprint.pprint(doc)
     return 'yeah, you got it :)'
 
